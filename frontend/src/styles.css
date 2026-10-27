@@ -1,0 +1,304 @@
+:root {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #172033;
+  background: #f5f7fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.shell {
+  width: min(100% - 32px, 720px);
+  margin: 0 auto;
+  padding: 28px 0 20px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 22px 4px;
+}
+
+.brand-mark {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 12px;
+  color: white;
+  background: #2252a4;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.brand strong,
+.brand span {
+  display: block;
+}
+
+.brand strong {
+  letter-spacing: 0.08em;
+}
+
+.brand span,
+.document-meta,
+.document-link small {
+  color: #6d7789;
+  font-size: 13px;
+}
+
+.panel {
+  padding: clamp(20px, 5vw, 36px);
+  border: 1px solid #e3e8f0;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 12px 35px rgb(34 52 84 / 7%);
+}
+
+.document-panel h1,
+.panel h1 {
+  margin: 0;
+  font-size: clamp(22px, 4vw, 30px);
+  line-height: 1.25;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  color: #2252a4;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.document-meta {
+  margin: 10px 0;
+}
+
+.client-name {
+  margin: 0 0 20px;
+  font-weight: 600;
+}
+
+.pdf-frame {
+  height: min(58vh, 650px);
+  min-height: 300px;
+  margin: 22px 0;
+  overflow: hidden;
+  border: 1px solid #dfe5ee;
+  border-radius: 10px;
+  background: #f5f7fb;
+}
+
+.pdf-frame iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.document-placeholder {
+  margin: 22px 0;
+  padding: 24px;
+  border: 1px dashed #cbd4e2;
+  border-radius: 10px;
+  color: #586579;
+  background: #f8faff;
+}
+
+.document-placeholder p {
+  margin: 8px 0 0;
+  line-height: 1.55;
+}
+
+.sign-form {
+  display: grid;
+  gap: 11px;
+  padding-top: 20px;
+  border-top: 1px solid #e8ecf2;
+}
+
+.code-hint,
+.consent-text,
+.notice-text {
+  margin: 0;
+  color: #586579;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.code-hint strong {
+  color: #172033;
+}
+
+.sign-form label {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sign-form input {
+  width: 100%;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid #cbd4e2;
+  border-radius: 9px;
+  outline: none;
+}
+
+.sign-form input:focus {
+  border-color: #2252a4;
+  box-shadow: 0 0 0 3px rgb(34 82 164 / 12%);
+}
+
+.sign-form button {
+  min-height: 48px;
+  margin-top: 4px;
+  border: 0;
+  border-radius: 9px;
+  color: #fff;
+  background: #2252a4;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sign-form button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.success-message {
+  padding: 15px;
+  border-radius: 9px;
+  color: #17613b;
+  background: #e8f7ef;
+  font-weight: 700;
+}
+
+.error-message {
+  margin: 0;
+  color: #b42318;
+  font-size: 14px;
+}
+
+.document-list {
+  display: grid;
+  gap: 10px;
+  margin: 24px 0;
+}
+
+.document-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid #e3e8f0;
+  border-radius: 10px;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.document-link:hover {
+  border-color: #9ab2db;
+  background: #f8faff;
+}
+
+.document-link strong,
+.document-link small {
+  display: block;
+}
+
+.document-link strong {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.document-link small {
+  margin-top: 5px;
+}
+
+.status {
+  flex: 0 0 auto;
+  color: #2252a4;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.status.signed {
+  color: #17613b;
+}
+
+.secondary-link {
+  color: #2252a4;
+  font-weight: 600;
+}
+
+.notice-shell {
+  max-width: 560px;
+}
+
+.notice-panel {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 100px;
+  line-height: 1.5;
+}
+
+.notice-panel p {
+  margin: 0;
+}
+
+.loader {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: 3px solid #d8e2f2;
+  border-top-color: #2252a4;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+footer {
+  padding: 18px 4px;
+  color: #788396;
+  font-size: 12px;
+  text-align: center;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 480px) {
+  .shell {
+    width: min(100% - 20px, 720px);
+    padding-top: 16px;
+  }
+
+  .document-link {
+    align-items: flex-start;
+  }
+
+  .status {
+    font-size: 12px;
+  }
+}
