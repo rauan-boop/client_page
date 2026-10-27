@@ -9,7 +9,6 @@ export type DocumentConfig = {
   kind: DocumentKind
   table: 'contracts' | 'dop_soglachenie' | 'dogovor_subarendy'
   title: string
-  codeField: string
   signedField: string
   pdfField: string
   viewedField?: string
@@ -21,7 +20,6 @@ export const documents: Record<DocumentKind, DocumentConfig> = {
     kind: 'contract',
     table: 'contracts',
     title: 'Договор аренды автотранспортного средства',
-    codeField: 'dogovor_code',
     signedField: 'dogovor_podpisan',
     pdfField: 'dogovor_url',
     viewedField: 'viewed_dogovor',
@@ -31,7 +29,6 @@ export const documents: Record<DocumentKind, DocumentConfig> = {
     kind: 'act',
     table: 'contracts',
     title: 'Акт приема-передачи автотранспортного средства',
-    codeField: 'act_priema_code',
     signedField: 'act_podpisan',
     pdfField: 'act_priema_url',
     viewedField: 'viewed_act',
@@ -41,7 +38,6 @@ export const documents: Record<DocumentKind, DocumentConfig> = {
     kind: 'consent',
     table: 'contracts',
     title: 'Согласие на перевод полученных штрафов',
-    codeField: 'soglasie_na_shtraf_code',
     signedField: 'soglasie_podpisano',
     pdfField: 'soglasie_na_straf_url',
     viewedField: 'viewed_soglasie',
@@ -51,7 +47,6 @@ export const documents: Record<DocumentKind, DocumentConfig> = {
     kind: 'additional',
     table: 'dop_soglachenie',
     title: 'Дополнительное соглашение к договору',
-    codeField: 'cod_podpisi',
     signedField: 'status_podpisi_clienta',
     pdfField: 'url_dop_soglasheniya',
     signedLabel: 'Документ подписан',
@@ -60,9 +55,8 @@ export const documents: Record<DocumentKind, DocumentConfig> = {
     kind: 'sublease',
     table: 'dogovor_subarendy',
     title: 'Договор субаренды',
-    codeField: 'dogovor_subarendy_cod',
     signedField: 'created_at',
-    pdfField: 'dogovor_subarendy_url',
+    pdfField: 'dogovor_url',
     viewedField: 'viewed_dogovor',
     signedLabel: 'Договор подписан',
   },

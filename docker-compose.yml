@@ -1,0 +1,10 @@
+services:
+  clientpage:
+    build:
+      context: ./frontend
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-}
+    ports:
+      - "${PORT:-8080}:80"
+    restart: unless-stopped

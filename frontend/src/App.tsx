@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   documentNumber,
@@ -14,6 +14,47 @@ import { supabase, supabaseConfigError } from './supabase'
 type DataRow = Record<string, unknown>
 
 const contractDocumentKinds: DocumentKind[] = ['contract', 'act', 'consent']
+function isDataRow(value: unknown): value is DataRow {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+const selectFields: Record<DocumentKind, string> = {
+  contract:
+    'id,nomer_dogovora,date_dogovora,created_at,client_familiya,client_imya,client_otchestvo,dogovor_url,dogovor_podpisan,viewed_dogovor,act_priema_url,act_podpisan,viewed_act,soglasie_na_straf_url,soglasie_podpisano,viewed_soglasie',
+  act: 'id,nomer_dogovora,date_dogovora,created_at,client_familiya,client_imya,client_otchestvo,act_priema_url,act_podpisan,viewed_act',
+  consent:
+    'id,nomer_dogovora,date_dogovora,created_at,client_familiya,client_imya,client_otchestvo,soglasie_na_straf_url,soglasie_podpisano,viewed_soglasie',
+  additional:
+    'id,created_at,date_dogovora,nomer_dogovora,nomer_dop_soglasheniya,url_dop_soglasheniya,status_podpisi_clienta',
+  sublease: 'id,created_at,dogovor_url,viewed_dogovor',
+}
+const previewContract: DataRow = {
+  id: 'preview',
+  nomer_dogovora: 'R-2026-0142',
+  date_dogovora: '2026-10-27T00:00:00.000Z',
+  created_at: '2026-10-27T00:00:00.000Z',
+  company_name: 'ТОО «Пример компании»',
+  client_familiya: 'Иванов',
+  client_imya: 'Александр',
+  client_otchestvo: 'Сергеевич',
+  dogovor_url: null,
+  act_priema_url: null,
+  soglasie_na_straf_url: null,
+  dogovor_podpisan: null,
+  act_podpisan: null,
+  soglasie_podpisano: null,
+}
+const previewAdditional: DataRow = {
+  id: 'preview-additional',
+  nomer_dogovora: 'R-2026-0142',
+  nomer_dop_soglasheniya: 'ДС-03',
+  date_dogovora: '2026-10-27T00:00:00.000Z',
+  created_at: '2026-10-27T00:00:00.000Z',
+  data_client: 'Александр Иванов',
+  url_dop_soglasheniya: null,
+  status_podpisi_clienta: false,
+}
+const previewAdditionalRows = [previewAdditional]
 
 function isSigned(config: DocumentConfig, row: DataRow): boolean {
   if (config.kind === 'sublease') {
@@ -40,13 +81,12 @@ function App() {
     [location.search],
   )
   const id = params.get('id')
+  const isPreview = params.get('preview') === '1'
   const linkType = params.get('type') ?? params.get('typ')
   const kind = resolveDocumentKind(location.pathname)
   const [row, setRow] = useState<DataRow | null>(null)
   const [loading, setLoading] = useState(Boolean(kind && id && supabase))
   const [error, setError] = useState<string | null>(null)
-  const [code, setCode] = useState('')
-  const [submitting, setSubmitting] = useState(false)
   const [signed, setSigned] = useState(false)
 
   useEffect(() => {
@@ -61,7 +101,25 @@ function App() {
   }, [linkType, location.pathname, location.search, navigate])
 
   useEffect(() => {
-    if (!kind || !id || !supabase) {
+    const client = supabase
+    if (isPreview && kind) {
+      setRow(kind === 'additional'
+        ? previewAdditional
+        : kind === 'sublease'
+          ? {
+              id: 'preview-sublease',
+              nomer_dogovora: 'R-2026-0142',
+              created_at: '2026-10-27T00:00:00.000Z',
+              dogovor_url: null,
+              viewed_dogovor: false,
+            }
+          : previewContract)
+      setSigned(false)
+      setLoading(false)
+      setError(null)
+      return
+    }
+    if (!kind || !id || !client) {
       setRow(null)
       setLoading(false)
       setError(kind && !id ? 'В ссылке отсутствует идентификатор документа.' : null)
@@ -72,12 +130,11 @@ function App() {
     setLoading(true)
     setError(null)
     setRow(null)
-    setCode('')
 
     void Promise.resolve(
-      supabase
+      client
         .from(documents[kind].table)
-        .select('*')
+        .select(selectFields[kind])
         .eq('id', id)
         .maybeSingle(),
     )
@@ -88,12 +145,16 @@ function App() {
           setError('Документ не найден или ссылка больше не действует.')
           return
         }
-        setRow(data as DataRow)
+        if (!isDataRow(data)) {
+          setError('Данные документа имеют неверный формат.')
+          return
+        }
+        setRow(data)
         const config = documents[kind]
-        setSigned(isSigned(config, data as DataRow))
+        setSigned(isSigned(config, data))
         if (config.viewedField) {
           void Promise.resolve(
-            supabase
+            client
               .from(config.table)
               .update({ [config.viewedField]: true })
               .eq('id', id),
@@ -132,57 +193,9 @@ function App() {
     return () => {
       active = false
     }
-  }, [id, kind])
+  }, [id, isPreview, kind])
 
-  async function signDocument(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!kind || !id || !row || !supabase) return
-    const config = documents[kind]
-    if (code !== String(row[config.codeField] ?? '')) {
-      setError('Код подписи не совпадает. Проверьте его и попробуйте снова.')
-      return
-    }
-    if (kind === 'sublease' || !row[config.pdfField]) {
-      setError(
-        'Подписание временно отключено: генерация подписанного PDF еще не перенесена.',
-      )
-      return
-    }
-    setSubmitting(true)
-    setError(null)
-    try {
-      const value =
-        kind === 'additional' ? true : new Date().toISOString()
-      const { data, error: updateError } = await supabase
-        .from(config.table)
-        .update({
-          [config.codeField]: code,
-          [config.signedField]: value,
-        })
-        .eq('id', id)
-        .select('id')
-        .maybeSingle()
-      if (updateError) {
-        setError(`Не удалось сохранить подписание: ${updateError.message}`)
-        return
-      }
-      if (!data) {
-        setError('Подписание не сохранено: запись недоступна для обновления.')
-        return
-      }
-      setSigned(true)
-    } catch (updateError: unknown) {
-      setError(
-        updateError instanceof Error
-          ? `Не удалось сохранить подписание: ${updateError.message}`
-          : 'Не удалось сохранить подписание.',
-      )
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  if (supabaseConfigError) {
+  if (supabaseConfigError && !isPreview) {
     return <Notice message={supabaseConfigError} />
   }
 
@@ -195,25 +208,40 @@ function App() {
         kind={kind}
         row={row}
         signed={signed}
-        code={code}
-        setCode={setCode}
-        submitting={submitting}
+        isPreview={isPreview}
         error={error}
-        onSubmit={signDocument}
       />
     )
   }
   if (location.pathname.toLowerCase() === '/glavnayastranica') {
-    return <DocumentList id={id} />
+    return isPreview ? (
+      <DocumentList id="preview" previewRow={previewContract} />
+    ) : (
+      <DocumentList id={id} />
+    )
   }
   if (location.pathname.toLowerCase() === '/dop') {
-    return <AdditionalOverview id={id} />
+    return isPreview ? (
+      <AdditionalOverview
+        id="preview-additional"
+        previewRow={previewAdditional}
+      />
+    ) : (
+      <AdditionalOverview id={id} />
+    )
   }
   if (location.pathname.toLowerCase() === '/dopsoglashenie') {
-    return <AdditionalList id={id} />
+    return isPreview ? (
+      <AdditionalList
+        id="preview"
+        previewRows={previewAdditionalRows}
+      />
+    ) : (
+      <AdditionalList id={id} />
+    )
   }
   if (location.pathname.toLowerCase() === '/subarend') {
-    return <SubleaseLanding id={id} />
+    return <SubleaseLanding id={isPreview ? 'preview' : id} />
   }
   return (
     <Notice message="Откройте ссылку, полученную для подписания документа." />
@@ -224,20 +252,15 @@ function DocumentPage(props: {
   kind: DocumentKind
   row: DataRow
   signed: boolean
-  code: string
-  setCode: (value: string) => void
-  submitting: boolean
+  isPreview: boolean
   error: string | null
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }) {
-  const { kind, row, signed, code, setCode, submitting, error, onSubmit } = props
+  const { kind, row, signed, isPreview, error } = props
   const config = documents[kind]
   const pdfUrl =
     typeof row[config.pdfField] === 'string'
       ? (row[config.pdfField] as string)
       : ''
-  const signingAvailable = Boolean(pdfUrl) && kind !== 'sublease'
-
   return (
     <main className="shell">
       <header className="brand">
@@ -277,54 +300,65 @@ function DocumentPage(props: {
           <div className="success-message" role="status">
             {config.signedLabel}
           </div>
-        ) : (
-          <form className="sign-form" onSubmit={onSubmit}>
-            {row[config.codeField] != null && (
-              <p className="code-hint">
-                Код для подписи: <strong>{String(row[config.codeField])}</strong>
-              </p>
-            )}
+        ) : isPreview ? (
+          <form
+            className="sign-form"
+            onSubmit={(event) => event.preventDefault()}
+          >
+            <p className="code-hint">
+              Код для демонстрации: <strong>1234</strong>
+            </p>
             <p className="consent-text">
               Введите код, чтобы подтвердить согласие с условиями документа.
             </p>
             <label htmlFor="sign-code">Код подписи</label>
-            <input
-              id="sign-code"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              required
-            />
-            {error && <p className="error-message" role="alert">{error}</p>}
-            <button type="submit" disabled={submitting || !signingAvailable}>
-              {submitting ? 'Сохраняем…' : 'Подписать документ'}
+            <input id="sign-code" inputMode="numeric" autoComplete="one-time-code" />
+            <button type="submit" disabled>
+              Подписать документ
             </button>
-            {!signingAvailable && (
-              <p className="notice-text">
-                Подписание станет доступно после переноса генерации PDF.
-              </p>
-            )}
+            <p className="notice-text">
+              Деморежим: подписание не изменяет данные.
+            </p>
           </form>
+        ) : (
+          <div className="pending-signing" role="status">
+            <strong>Подписание пока недоступно</strong>
+            <p>
+              Подключение подтверждения подписи и генерации итогового PDF еще не
+              перенесено.
+            </p>
+          </div>
         )}
+        {error && <p className="error-message" role="alert">{error}</p>}
       </section>
       <footer>Документы предоставлены компанией R-CORE</footer>
     </main>
   )
 }
 
-function DocumentList({ id }: { id: string | null }) {
-  const [row, setRow] = useState<DataRow | null>(null)
+function DocumentList({
+  id,
+  previewRow,
+}: {
+  id: string | null
+  previewRow?: DataRow
+}) {
+  const [row, setRow] = useState<DataRow | null>(previewRow ?? null)
   const [message, setMessage] = useState('Загружаем список документов…')
 
   useEffect(() => {
+    if (previewRow) {
+      setRow(previewRow)
+      setMessage('')
+      return
+    }
     if (!id || !supabase) {
       setMessage('Ссылка не содержит идентификатор договора.')
       return
     }
     let active = true
     void Promise.resolve(
-      supabase.from('contracts').select('*').eq('id', id).maybeSingle(),
+      supabase.from('contracts')      .select(selectFields.contract).eq('id', id).maybeSingle(),
     )
       .then(({ data, error }) => {
         if (!active) return
@@ -336,7 +370,11 @@ function DocumentList({ id }: { id: string | null }) {
           setMessage('Договор не найден или ссылка больше не действует.')
           return
         }
-        setRow(data as DataRow)
+        if (!isDataRow(data)) {
+          setMessage('Данные договора имеют неверный формат.')
+          return
+        }
+        setRow(data)
         setMessage('')
       })
       .catch((queryError: unknown) => {
@@ -351,7 +389,7 @@ function DocumentList({ id }: { id: string | null }) {
     return () => {
       active = false
     }
-  }, [id])
+  }, [id, previewRow])
 
   if (!row) return <Notice message={message} loading={message.startsWith('Загружаем')} />
 
@@ -369,7 +407,10 @@ function DocumentList({ id }: { id: string | null }) {
             <DocumentLink key={kind} kind={kind} id={id!} row={row} />
           ))}
         </div>
-        <Link className="secondary-link" to={`/dopSoglashenie?id=${encodeURIComponent(id!)}`}>
+        <Link
+          className="secondary-link"
+          to={`/dopSoglashenie?id=${encodeURIComponent(id!)}${id === 'preview' ? '&preview=1' : ''}`}
+        >
           Дополнительные соглашения
         </Link>
       </section>
@@ -378,11 +419,22 @@ function DocumentList({ id }: { id: string | null }) {
   )
 }
 
-function AdditionalOverview({ id }: { id: string | null }) {
-  const [row, setRow] = useState<DataRow | null>(null)
+function AdditionalOverview({
+  id,
+  previewRow,
+}: {
+  id: string | null
+  previewRow?: DataRow
+}) {
+  const [row, setRow] = useState<DataRow | null>(previewRow ?? null)
   const [message, setMessage] = useState('Загружаем дополнительное соглашение…')
 
   useEffect(() => {
+    if (previewRow) {
+      setRow(previewRow)
+      setMessage('')
+      return
+    }
     if (!id || !supabase) {
       setMessage('Ссылка не содержит идентификатор соглашения.')
       return
@@ -391,7 +443,7 @@ function AdditionalOverview({ id }: { id: string | null }) {
     void Promise.resolve(
       supabase
         .from('dop_soglachenie')
-        .select('*')
+        .select(selectFields.additional)
         .eq('id', id)
         .maybeSingle(),
     )
@@ -405,7 +457,11 @@ function AdditionalOverview({ id }: { id: string | null }) {
           setMessage('Соглашение не найдено или ссылка больше не действует.')
           return
         }
-        setRow(data as DataRow)
+        if (!isDataRow(data)) {
+          setMessage('Данные соглашения имеют неверный формат.')
+          return
+        }
+        setRow(data)
         setMessage('')
       })
       .catch((queryError: unknown) => {
@@ -420,7 +476,7 @@ function AdditionalOverview({ id }: { id: string | null }) {
     return () => {
       active = false
     }
-  }, [id])
+  }, [id, previewRow])
 
   if (!row) {
     return <Notice message={message} loading={message.startsWith('Загружаем')} />
@@ -438,11 +494,22 @@ function AdditionalOverview({ id }: { id: string | null }) {
   )
 }
 
-function AdditionalList({ id }: { id: string | null }) {
-  const [rows, setRows] = useState<DataRow[]>([])
+function AdditionalList({
+  id,
+  previewRows,
+}: {
+  id: string | null
+  previewRows?: DataRow[]
+}) {
+  const [rows, setRows] = useState<DataRow[]>(previewRows ?? [])
   const [message, setMessage] = useState('Загружаем дополнительные соглашения…')
 
   useEffect(() => {
+    if (previewRows) {
+      setRows(previewRows)
+      setMessage('')
+      return
+    }
     if (!id || !supabase) {
       setMessage('Ссылка не содержит идентификатор договора.')
       return
@@ -451,7 +518,9 @@ function AdditionalList({ id }: { id: string | null }) {
     void Promise.resolve(
       supabase
         .from('dop_soglachenie')
-        .select('*')
+        .select(
+          'id,id_dogovora,created_at,date_dogovora,nomer_dogovora,nomer_dop_soglasheniya,url_dop_soglasheniya,status_podpisi_clienta',
+        )
         .eq('id_dogovora', id),
     )
       .then(({ data, error }) => {
@@ -460,7 +529,8 @@ function AdditionalList({ id }: { id: string | null }) {
           setMessage(error.message)
           return
         }
-        setRows((data ?? []) as DataRow[])
+        const validRows = (data ?? []).filter(isDataRow)
+        setRows(validRows)
         setMessage('')
       })
       .catch((queryError: unknown) => {
@@ -475,7 +545,7 @@ function AdditionalList({ id }: { id: string | null }) {
     return () => {
       active = false
     }
-  }, [id])
+  }, [id, previewRows])
 
   if (message) return <Notice message={message} loading={message.startsWith('Загружаем')} />
   return (
@@ -510,7 +580,10 @@ function SubleaseLanding({ id }: { id: string | null }) {
         <h1>Договор субаренды</h1>
         <p>Откройте документ для ознакомления и подписания.</p>
         {id ? (
-          <Link className="document-link" to={`/subarenda?id=${encodeURIComponent(id)}`}>
+          <Link
+            className="document-link"
+            to={`/subarenda?id=${encodeURIComponent(id)}${id === 'preview' ? '&preview=1' : ''}`}
+          >
             Перейти к договору субаренды
           </Link>
         ) : (
@@ -533,10 +606,12 @@ function DocumentLink({
   const config = documents[kind]
   const date = formatDate(row.date_dogovora ?? row.created_at)
   const title = `${config.title}${documentNumber(row) ? ` — ${documentNumber(row)}` : ''}`
+  const search = new URLSearchParams({ id })
+  if (id.startsWith('preview')) search.set('preview', '1')
   return (
     <Link
       className="document-link"
-      to={`${documentRoutes[kind]}?id=${encodeURIComponent(id)}`}
+      to={`${documentRoutes[kind]}?${search.toString()}`}
     >
       <span>
         <strong>{title}</strong>
