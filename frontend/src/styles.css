@@ -177,6 +177,18 @@ input {
   opacity: 0.65;
 }
 
+.sigex-mobile-link {
+  display: grid;
+  min-height: 48px;
+  place-items: center;
+  border-radius: 9px;
+  color: #fff;
+  background: #2252a4;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+}
+
 .success-message {
   padding: 15px;
   border-radius: 9px;

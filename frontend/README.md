@@ -37,14 +37,26 @@ continue to work.
 
 ## Migration notes
 
-Existing links and Supabase tables are mapped in `src/documents.ts`. This first
-migration stage can load records, show already-generated PDFs, and navigate the
-document types used by existing links. Signing is intentionally disabled until
-the legacy PDF generators and the associated Supabase updates are ported and
-tested; this avoids marking a document as signed without producing its required
-signed PDF. Database reads request only the fields needed by the client pages;
-signing codes are never fetched or displayed. The legacy site also records
-device/IP metadata, which has not yet been ported.
+Existing links and Supabase tables are mapped in `src/documents.ts`. This
+migration stage loads records, shows already-generated PDFs, and navigates the
+document types used by existing links. The contract can be signed separately
+through SIGEX/eGov Mobile; OTP signing and signing the other document types
+remain unavailable in this React frontend. Database reads request only the
+fields needed by the client pages; signing codes are never fetched or
+displayed. The legacy site also records device/IP metadata, which has not yet
+been ported.
+
+Contract e-signing uses the official SIGEX QR client to start a cross-signing
+session in eGov Mobile on the client's phone. The returned CMS signature
+contains the original PDF and is saved in the existing `contracts` Storage
+bucket; `contracts.dogovor_sigex_url` links to that evidence. Apply
+`supabase/migrations/20261028010000_add_sigex_contract_signature.sql` before
+deploying this frontend. The Storage bucket and `contracts` table must permit
+the client-link flow to upload the evidence file and update the contract row.
+The browser uploads the CMS evidence and updates the signing timestamp through
+the public Supabase client. Before production use, verify Row Level Security
+restricts those writes to the intended client-link operations; the CMS file is
+the proof of signature, not the timestamp alone.
 
 For design review without database credentials, use these sample URLs with the
 development server:
@@ -54,6 +66,6 @@ development server:
 - `/dop?id=preview&preview=1`
 
 The development preview uses sample data only and cannot change database
-records. Before enabling signing in production, verify the existing Supabase
-Row Level Security policies and implement code verification and PDF generation
-through a trusted backend endpoint.
+records. OTP signing and signing the other document types require their
+existing code verification and PDF-generation flows to be ported before they
+can be enabled in this frontend.

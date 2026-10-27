@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { QRSigningClientCMS } from 'sigex-qr-signing-client'
 import {
   documentNumber,
   documentRoutes,
@@ -20,7 +21,7 @@ function isDataRow(value: unknown): value is DataRow {
 
 const selectFields: Record<DocumentKind, string> = {
   contract:
-    'id,nomer_dogovora,date_dogovora,created_at,client_familiya,client_imya,client_otchestvo,dogovor_url,dogovor_podpisan,viewed_dogovor,act_priema_url,act_podpisan,viewed_act,soglasie_na_straf_url,soglasie_podpisano,viewed_soglasie',
+    'id,nomer_dogovora,date_dogovora,created_at,client_familiya,client_imya,client_otchestvo,dogovor_url,dogovor_podpisan,dogovor_sigex_url,viewed_dogovor,act_priema_url,act_podpisan,viewed_act,soglasie_na_straf_url,soglasie_podpisano,viewed_soglasie',
   act: 'id,nomer_dogovora,date_dogovora,created_at,client_familiya,client_imya,client_otchestvo,act_priema_url,act_podpisan,viewed_act',
   consent:
     'id,nomer_dogovora,date_dogovora,created_at,client_familiya,client_imya,client_otchestvo,soglasie_na_straf_url,soglasie_podpisano,viewed_soglasie',
@@ -210,6 +211,12 @@ function App() {
         signed={signed}
         isPreview={isPreview}
         error={error}
+        onSigexSigned={(url) => {
+          setRow((currentRow) =>
+            currentRow ? { ...currentRow, dogovor_sigex_url: url } : currentRow,
+          )
+          setSigned(true)
+        }}
       />
     )
   }
@@ -254,13 +261,173 @@ function DocumentPage(props: {
   signed: boolean
   isPreview: boolean
   error: string | null
+  onSigexSigned: (url: string) => void
 }) {
-  const { kind, row, signed, isPreview, error } = props
+  const {
+    kind,
+    row,
+    signed,
+    isPreview,
+    error,
+    onSigexSigned,
+  } = props
+  const [sigexPhase, setSigexPhase] = useState<
+    'idle' | 'preparing' | 'ready' | 'waiting' | 'saving' | 'error'
+  >('idle')
+  const [sigexError, setSigexError] = useState<string | null>(null)
+  const [sigexLink, setSigexLink] = useState<string | null>(null)
+  const [sigexEvidenceUrl, setSigexEvidenceUrl] = useState<string | null>(null)
+  const signerRef = useRef<QRSigningClientCMS | null>(null)
+  const signatureRequestRef = useRef<Promise<string[]> | null>(null)
   const config = documents[kind]
   const pdfUrl =
     typeof row[config.pdfField] === 'string'
       ? (row[config.pdfField] as string)
       : ''
+  const sigexSigned =
+    kind === 'contract' &&
+    typeof row.dogovor_sigex_url === 'string' &&
+    row.dogovor_sigex_url.length > 0
+
+  async function prepareSigexSigning() {
+    if (kind !== 'contract' || !pdfUrl || !idIsSafe(row.id)) {
+      setSigexError('Не удалось определить договор или его PDF-файл.')
+      setSigexPhase('error')
+      return
+    }
+
+    setSigexPhase('preparing')
+    setSigexError(null)
+    setSigexLink(null)
+    setSigexEvidenceUrl(null)
+
+    try {
+      const pdfResponse = await fetch(pdfUrl)
+      if (!pdfResponse.ok) {
+        throw new Error(`Не удалось загрузить PDF договора (HTTP ${pdfResponse.status}).`)
+      }
+
+      const pdf = await pdfResponse.blob()
+      if ((await pdf.slice(0, 5).text()) !== '%PDF-') {
+        throw new Error('Ссылка на договор не ведёт к PDF-файлу.')
+      }
+
+      const documentDescription = [
+        config.title,
+        documentNumber(row),
+      ].filter(Boolean).join(' ')
+      const signer = new QRSigningClientCMS(documentDescription, true)
+      await signer.addDataToSign(
+        [
+          config.title,
+          'Автокөлік құралын жалға алу шарты',
+          'Vehicle rental agreement',
+        ],
+        pdf,
+        documentNumber(row)
+          ? [{ name: 'Номер договора', value: documentNumber(row) }]
+          : [],
+        true,
+      )
+      await signer.registerQRSinging()
+
+      const mobileLink = signer.getEGovMobileLaunchLink()
+      if (!isSigexMobileLink(mobileLink)) {
+        throw new Error('SIGEX не вернул ссылку для запуска eGov Mobile.')
+      }
+
+      signerRef.current = signer
+      setSigexLink(mobileLink)
+      setSigexPhase('ready')
+    } catch (signingError) {
+      setSigexError(
+        signingError instanceof Error
+          ? signingError.message
+          : 'Не удалось подготовить подписание через SIGEX.',
+      )
+      setSigexPhase('error')
+    }
+  }
+
+  function launchSigexSigning() {
+    const signer = signerRef.current
+    if (!signer || signatureRequestRef.current) return
+
+    setSigexPhase('waiting')
+    setSigexError(null)
+    const signatureRequest = signer.getSignatures()
+    signatureRequestRef.current = signatureRequest
+
+    void signatureRequest
+      .then(async (signatures) => {
+        if (signatures.length !== 1 || !signatures[0]) {
+          throw new Error('SIGEX не вернул подпись договора.')
+        }
+
+        setSigexPhase('saving')
+        const client = supabase
+        if (!client) {
+          throw new Error(supabaseConfigError ?? 'Supabase не настроен.')
+        }
+
+        const binarySignature = atob(signatures[0])
+        const signatureBytes = Uint8Array.from(binarySignature, (character) =>
+          character.charCodeAt(0),
+        )
+        const signatureFile = new Blob([signatureBytes], {
+          type: 'application/pkcs7-mime',
+        })
+        const storagePath =
+          `sigex/${encodeURIComponent(String(row.id))}/${crypto.randomUUID()}.p7m`
+        const { error: uploadError } = await client.storage
+          .from('contracts')
+          .upload(storagePath, signatureFile, {
+            contentType: 'application/pkcs7-mime',
+            upsert: false,
+          })
+        if (uploadError) {
+          throw new Error(`Подпись получена, но не удалось сохранить файл: ${uploadError.message}`)
+        }
+
+        const evidenceUrl = client.storage
+          .from('contracts')
+          .getPublicUrl(storagePath).data.publicUrl
+        setSigexEvidenceUrl(evidenceUrl)
+
+        const { data, error: updateError } = await client
+          .from('contracts')
+          .update({
+            dogovor_sigex_url: evidenceUrl,
+            dogovor_podpisan: new Date().toISOString(),
+          })
+          .eq('id', String(row.id))
+          .select('id')
+          .maybeSingle()
+        if (updateError) {
+          throw new Error(
+            `Файл подписи сохранён, но CRM не записала результат: ${updateError.message}`,
+          )
+        }
+        if (!data) {
+          throw new Error(
+            'Файл подписи сохранён, но CRM не подтвердила запись результата.',
+          )
+        }
+
+        onSigexSigned(evidenceUrl)
+      })
+      .catch((signingError: unknown) => {
+        setSigexError(
+          signingError instanceof Error
+            ? signingError.message
+            : 'Не удалось получить или сохранить подпись SIGEX.',
+        )
+        setSigexPhase('error')
+        signerRef.current = null
+        signatureRequestRef.current = null
+      })
+  }
+
   return (
     <main className="shell">
       <header className="brand">
@@ -296,9 +463,9 @@ function DocumentPage(props: {
           </div>
         )}
 
-        {signed ? (
+        {signed && (kind !== 'contract' || sigexSigned) ? (
           <div className="success-message" role="status">
-            {config.signedLabel}
+            {sigexSigned ? 'Договор подписан через SIGEX' : config.signedLabel}
           </div>
         ) : isPreview ? (
           <form
@@ -320,6 +487,57 @@ function DocumentPage(props: {
               Деморежим: подписание не изменяет данные.
             </p>
           </form>
+        ) : kind === 'contract' ? (
+          <div className="sign-form sigex-signing">
+            <p className="code-hint">
+              Подпишите договор электронной подписью через eGov Mobile.
+            </p>
+            {sigexPhase === 'idle' || sigexPhase === 'error' ? (
+              <button
+                type="button"
+                onClick={() => void prepareSigexSigning()}
+                disabled={!pdfUrl}
+              >
+                Подготовить подпись SIGEX
+              </button>
+            ) : null}
+            {sigexPhase === 'preparing' && (
+              <p className="notice-text" role="status">
+                Готовим договор для SIGEX…
+              </p>
+            )}
+            {sigexPhase === 'ready' && sigexLink && (
+              <>
+                <a
+                  className="sigex-mobile-link"
+                  href={sigexLink}
+                  onClick={launchSigexSigning}
+                >
+                  Перейти в eGov Mobile и подписать
+                </a>
+                <p className="notice-text">
+                  После подписания вернитесь на эту страницу. Результат и файл
+                  подписи сохранятся автоматически.
+                </p>
+              </>
+            )}
+            {(sigexPhase === 'waiting' || sigexPhase === 'saving') && (
+              <p className="notice-text" role="status">
+                {sigexPhase === 'waiting'
+                  ? 'Ожидаем результат eGov Mobile. Завершите подписание и вернитесь сюда.'
+                  : 'Подпись получена. Сохраняем её в CRM…'}
+              </p>
+            )}
+            {sigexError && (
+              <p className="error-message" role="alert">{sigexError}</p>
+            )}
+            {sigexEvidenceUrl && sigexPhase === 'error' && (
+              <p className="notice-text">
+                Файл подписи сохранён:{' '}
+                <a href={sigexEvidenceUrl}>скачать CMS с договором</a>
+              </p>
+            )}
+          </div>
         ) : (
           <div className="pending-signing" role="status">
             <strong>Подписание пока недоступно</strong>
@@ -334,6 +552,20 @@ function DocumentPage(props: {
       <footer>Документы предоставлены компанией R-CORE</footer>
     </main>
   )
+}
+
+function idIsSafe(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0
+}
+
+function isSigexMobileLink(value: string | null): value is string {
+  if (!value) return false
+  try {
+    const protocol = new URL(value).protocol
+    return protocol === 'https:' || protocol === 'egovmobile:'
+  } catch {
+    return false
+  }
 }
 
 function DocumentList({
