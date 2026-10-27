@@ -264,7 +264,7 @@ function DocumentPage(props: {
   return (
     <main className="shell">
       <header className="brand">
-        <div className="brand-mark">R</div>
+        <img className="brand-logo" src="/brand-logo.jpeg" alt="R-CORE" />
         <div>
           <strong>R-CORE</strong>
           <span>Документы автопроката</span>
@@ -627,7 +627,7 @@ function DocumentLink({
 function Brand() {
   return (
     <header className="brand">
-      <div className="brand-mark">R</div>
+      <img className="brand-logo" src="/brand-logo.jpeg" alt="R-CORE" />
       <div>
         <strong>R-CORE</strong>
         <span>Документы автопроката</span>
